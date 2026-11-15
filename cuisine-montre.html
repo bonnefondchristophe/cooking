@@ -106,6 +106,9 @@ legend{font-weight:700;padding:0 .4rem}
 <p class="hint">Les sujets ntfy sont publics : un nom simple comme « cooking » peut être lu par n’importe qui. Préfère un nom long et unique.</p>
 <label for="srv">Serveur ntfy</label>
 <input id="srv" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false">
+<label for="delay">Délai avant livraison (secondes)</label>
+<input id="delay" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
+<p class="hint">Le serveur ntfy garde le message et ne le livre qu’après ce délai (10 s minimum, 0 pour désactiver). Pendant ce temps, verrouille l’iPhone : la réponse arrive alors sur la montre, même si la page est en pause.</p>
 <div class="row"><button id="test" type="button">Tester la montre</button></div>
 </fieldset>
 </details>
@@ -115,7 +118,7 @@ legend{font-weight:700;padding:0 .4rem}
 const $ = s => document.querySelector(s);
 const DEF_PROMPT = "Tu es un assistant de cuisine. Regarde la photo (ingrédients, plat ou étape de recette) et réponds en français en 3 phrases courtes maximum : ce que tu vois, puis une idée ou un conseil utile. Pas de mise en forme (pas de markdown, pas de liste), le texte sera lu sur une montre.";
 const DEF = {provider:"gemini", keys:{gemini:"",openrouter:"",openai:""}, models:{gemini:"",openrouter:"",openai:""},
-  openaiBase:"https://api.openai.com/v1", prompt:DEF_PROMPT, topic:"cooking", ntfy:"https://ntfy.sh", send:true};
+  openaiBase:"https://api.openai.com/v1", prompt:DEF_PROMPT, topic:"cooking", ntfy:"https://ntfy.sh", delay:15};
 const NAMES = {gemini:"Gemini", openrouter:"OpenRouter", openai:"OpenAI"};
 let S = load(), lastImage = null, lastText = "";
 
@@ -129,7 +132,7 @@ function save(){ try{ localStorage.setItem("cuisine-cfg", JSON.stringify(S)); }c
 function status(t, cls){ const el=$("#status"); el.textContent=t; el.className=cls||""; }
 
 const F = {provider:$("#provider"), kg:$("#kg"), ko:$("#ko"), kp:$("#kp"), base:$("#base"), model:$("#model"),
-  prompt:$("#prompt"), topic:$("#topic"), srv:$("#srv")};
+  prompt:$("#prompt"), topic:$("#topic"), srv:$("#srv"), delay:$("#delay")};
 
 function refreshProvider(){
   F.model.value = S.models[S.provider] || "";
@@ -140,7 +143,7 @@ function refreshProvider(){
 }
 function fill(){
   F.provider.value=S.provider; F.kg.value=S.keys.gemini; F.ko.value=S.keys.openrouter; F.kp.value=S.keys.openai;
-  F.base.value=S.openaiBase; F.prompt.value=S.prompt; F.topic.value=S.topic; F.srv.value=S.ntfy;
+  F.base.value=S.openaiBase; F.prompt.value=S.prompt; F.topic.value=S.topic; F.srv.value=S.ntfy; F.delay.value=S.delay;
   refreshProvider();
   if(!S.keys[S.provider] && S.provider!=="openrouter") $("#cfg").open = true;
 }
@@ -153,6 +156,7 @@ F.model.oninput = () => { S.models[S.provider]=F.model.value.trim(); save(); };
 F.prompt.oninput = () => { S.prompt=F.prompt.value; save(); };
 F.topic.oninput = () => { S.topic=F.topic.value.trim(); save(); };
 F.srv.oninput = () => { S.ntfy=F.srv.value.trim(); save(); };
+F.delay.oninput = () => { S.delay=parseInt(F.delay.value, 10) || 0; save(); };
 $("#resetPrompt").onclick = () => { S.prompt=DEF_PROMPT; F.prompt.value=DEF_PROMPT; save(); };
 
 async function check(r){
@@ -238,10 +242,17 @@ async function analyze(dataUrl){
   return (Array.isArray(c) ? c.map(x => x.text||"").join("\n") : (c||"")).trim();
 }
 
-async function sendWatch(text, title){
+async function sendWatch(text, title, delaySec){
   if(!S.topic) throw new Error("Indique un sujet ntfy (Réglages).");
-  await check2(await fetch(S.ntfy.replace(/\/+$/,"") + "/" + encodeURIComponent(S.topic), {method:"POST", headers:{Title:title || "Cuisine"}, body:text}));
+  const headers = {Title: title || "Cuisine"};
+  if(delaySec >= 10) headers.Delay = delaySec + "s";
+  await check2(await fetch(S.ntfy.replace(/\/+$/,"") + "/" + encodeURIComponent(S.topic), {method:"POST", headers, body:text}));
 }
+// Délai de livraison côté serveur (10 s minimum). Chaque morceau d'une réponse longue part 3 s après le précédent pour garder l'ordre.
+const delayFor = p => { const d = Number(S.delay) || 0; return d >= 10 ? d + p * 3 : 0; };
+const sentMsg = () => (Number(S.delay) || 0) >= 10
+  ? "Envoyé. Verrouille l’iPhone maintenant : la montre recevra la réponse dans " + S.delay + " s."
+  : "Envoyé sur la montre.";
 // ntfy limite un message à 4096 octets (les accents comptent double) : on coupe à 3800 octets, de préférence à une fin de phrase ou à un espace.
 function splitText(t, max = 3800){
   const enc = new TextEncoder(), parts = [];
@@ -284,7 +295,7 @@ async function run(){
   try{
     status("Envoi sur la montre…");
     await sendWatchRetry(msg);
-    status(failed ? failed + " (signalé sur la montre)" : "Envoyé sur la montre.", failed ? "err" : "ok");
+    status(failed ? failed + " (signalé sur la montre)" : sentMsg(), failed ? "err" : "ok");
   }catch(e){
     status((failed ? failed + " — " : "") + "Envoi à la montre impossible : " + (e.message || e), "err");
   }
@@ -296,7 +307,7 @@ async function sendWatchRetry(text){
     if(parts.length > 1) status("Envoi sur la montre (" + (p + 1) + "/" + parts.length + ")…");
     let last, done = false;
     for(let i = 0; i < 3 && !done; i++){
-      try{ await sendWatch(parts[p], title); done = true; }
+      try{ await sendWatch(parts[p], title, delayFor(p)); done = true; }
       catch(e){ last = e; await new Promise(r => setTimeout(r, 1500)); }
     }
     if(!done) throw last;
@@ -316,11 +327,11 @@ $("#file").onchange = async e => {
 };
 $("#retry").onclick = run;
 $("#resend").onclick = async () => {
-  try{ status("Envoi sur la montre…"); await sendWatchRetry(lastText); status("Envoyé sur la montre.", "ok"); }
+  try{ status("Envoi sur la montre…"); await sendWatchRetry(lastText); status(sentMsg(), "ok"); }
   catch(e){ status(e.message, "err"); }
 };
 $("#test").onclick = async () => {
-  try{ status("Envoi du test…"); await sendWatch("Test : la montre est bien connectée."); status("Test envoyé.", "ok"); }
+  try{ status("Envoi du test…"); await sendWatch("Test : la montre est bien connectée.", "Cuisine", delayFor(0)); status("Test envoyé. " + sentMsg().replace(/^Envoyé\.\s*/, ""), "ok"); }
   catch(e){ status(e.message, "err"); }
 };
 fill();
