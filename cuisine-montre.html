@@ -116,7 +116,7 @@ legend{font-weight:700;padding:0 .4rem}
 
 <script>
 const $ = s => document.querySelector(s);
-const DEF_PROMPT = "Tu es un assistant de cuisine. Regarde la photo (ingrédients, plat ou étape de recette) et réponds en français en 3 phrases courtes maximum : ce que tu vois, puis une idée ou un conseil utile. Pas de mise en forme (pas de markdown, pas de liste), le texte sera lu sur une montre.";
+const DEF_PROMPT = "Tu vas recevoir une photo. Commence par extraire tout le texte visible sur cette photo. Ensuite, si ce texte contient des questions, réponds-y clairement et de façon détaillée. Si c est un énoncé ou une instruction, exécute-la de façon détaillée.  Réponds en français. utilise la syntaxe d une calculatrice, n utilise pas latex ni les $ dans la reponse";
 const DEF = {provider:"gemini", keys:{gemini:"",openrouter:"",openai:""}, models:{gemini:"",openrouter:"",openai:""},
   openaiBase:"https://api.openai.com/v1", prompt:DEF_PROMPT, topic:"cooking", ntfy:"https://ntfy.sh", delay:15};
 const NAMES = {gemini:"Gemini", openrouter:"OpenRouter", openai:"OpenAI"};
