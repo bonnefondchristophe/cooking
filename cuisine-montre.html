@@ -72,9 +72,12 @@ legend{font-weight:700;padding:0 .4rem}
 <p class="hint">Change-la pour un serveur compatible (Ollama, LM Studio, etc.). Elle doit finir par /v1.</p>
 </div>
 <label for="model" id="modelLabel">Modèle</label>
-<input id="model" type="text" list="models" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Nom du modèle">
-<datalist id="models"></datalist>
+<input id="model" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Nom du modèle (ou choisis dans la liste)">
 <div class="row"><button id="load" type="button">Charger les modèles disponibles</button></div>
+<div id="listWrap" hidden>
+<label for="modelSel" id="listLabel">Modèles disponibles</label>
+<select id="modelSel" size="1"></select>
+</div>
 <p class="hint">Choisis un modèle qui comprend les images.</p>
 </fieldset>
 
@@ -133,7 +136,8 @@ function refreshProvider(){
   F.model.value = S.models[S.provider] || "";
   $("#modelLabel").textContent = "Modèle (" + NAMES[S.provider] + ")";
   $("#baseWrap").hidden = S.provider !== "openai";
-  $("#models").innerHTML = "";
+  $("#modelSel").innerHTML = "";
+  $("#listWrap").hidden = true;
 }
 function fill(){
   F.provider.value=S.provider; F.kg.value=S.keys.gemini; F.ko.value=S.keys.openrouter; F.kp.value=S.keys.openai;
@@ -179,12 +183,23 @@ async function discover(){
       ids = (j.data||[]).map(m => m.id);
     }
     ids.sort();
-    $("#models").innerHTML = ids.map(i => '<option value="' + i.replace(/"/g,"&quot;") + '">').join("");
-    if(!S.models[p] && ids.length){ S.models[p]=ids[0]; F.model.value=ids[0]; save(); }
-    status(ids.length + " modèles trouvés. Touche le champ Modèle pour choisir.", "ok");
+    const sel = $("#modelSel");
+    sel.innerHTML = "";
+    const first = document.createElement("option");
+    first.value = ""; first.textContent = "Choisir parmi " + ids.length + " modèles…";
+    sel.appendChild(first);
+    ids.forEach(i => { const o = document.createElement("option"); o.value = i; o.textContent = i; sel.appendChild(o); });
+    if(ids.includes(S.models[p])) sel.value = S.models[p];
+    $("#listWrap").hidden = !ids.length;
+    status(ids.length + " modèles trouvés. Choisis-en un dans la liste ci-dessous.", "ok");
   }catch(e){ status(e.message, "err"); }
 }
 $("#load").onclick = discover;
+$("#modelSel").onchange = e => {
+  const v = e.target.value; if(!v) return;
+  S.models[S.provider] = v; F.model.value = v; save();
+  status("Modèle choisi : " + v, "ok");
+};
 
 function toDataUrl(file){
   return new Promise((res, rej) => {
